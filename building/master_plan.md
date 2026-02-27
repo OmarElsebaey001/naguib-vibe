@@ -153,6 +153,7 @@ Auth and Polish are parallel/trailing work.
 7. **Frontend code goes in `frontend/`**, backend code goes in `backend/`**. Never mix.
 8. **Use the AG-UI Python SDK** (`ag_ui.core`, `ag_ui.encoder`) for the backend — don't reimplement event models.
 9. **`requirements.md` describes the original vision** (pre-FastAPI, pre-AG-UI). The building plans are the updated source of truth for architecture decisions. Where they conflict, the building plans win.
+10. **Two-environment config**: Backend uses Pydantic `BaseSettings` loading from `.env` files. Same code, different env vars. Local dev = local Postgres + local filesystem uploads. Production = AWS RDS + S3. No if/else environment branching in application code — only the `.env` file changes.
 
 ---
 

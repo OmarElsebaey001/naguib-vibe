@@ -70,7 +70,7 @@ By the end of this plan, we should be able to hand-write a page config JSON and 
         catalog.py      # Catalog generation from registry data
         prompt.py       # System prompt builder
       core/
-        config.py       # Settings (API keys, CORS origins, DB URL, JWT secret, etc.)
+        config.py       # Pydantic BaseSettings (loads from .env — same code for local + production)
         database.py     # SQLAlchemy async engine + session factory
         security.py     # JWT creation/validation, password hashing
       migrations/       # Alembic migrations
@@ -79,8 +79,32 @@ By the end of this plan, we should be able to hand-write a page config JSON and 
     alembic.ini
   ```
 - [ ] Configure CORS middleware (allow frontend origin)
-- [ ] Create `.env` with `DATABASE_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, `FRONTEND_URL`
-- [ ] Set up SQLAlchemy async engine with asyncpg connecting to Postgres
+- [ ] Set up **two-environment configuration**:
+  - `.env` — local development (committed as `.env.example` with placeholder values):
+    ```
+    DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/naguib
+    JWT_SECRET=dev-secret-change-me
+    ANTHROPIC_API_KEY=sk-ant-...
+    FRONTEND_URL=http://localhost:3000
+    AWS_S3_BUCKET=          # empty = use local filesystem
+    AWS_REGION=
+    ```
+  - `.env.production` — AWS production (never committed):
+    ```
+    DATABASE_URL=postgresql+asyncpg://naguib_user:<password>@naguib-db.xxxxxxxx.us-east-1.rds.amazonaws.com:5432/naguib
+    JWT_SECRET=<strong-random-secret>
+    ANTHROPIC_API_KEY=sk-ant-...
+    FRONTEND_URL=https://naguib.dev
+    AWS_S3_BUCKET=naguib-uploads
+    AWS_REGION=us-east-1
+    ```
+  - `core/config.py` uses Pydantic `BaseSettings` to load from environment — no if/else branching, just different `.env` files per environment
+  - `.gitignore`: `.env`, `.env.production` (only `.env.example` is committed)
+- [ ] **Local Postgres setup** (development):
+  - Document: `docker run -d --name naguib-db -e POSTGRES_DB=naguib -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`
+  - Or use existing local Postgres — just create the `naguib` database
+  - Alembic migrations must run cleanly on both local and RDS
+- [ ] Set up SQLAlchemy async engine with asyncpg (reads `DATABASE_URL` from env — same code, different URL)
 - [ ] Initialize Alembic for migrations
 - [ ] Verify server starts: `uvicorn app.main:app --reload`
 - [ ] Health check endpoint: `GET /health` → `{ "status": "ok" }`

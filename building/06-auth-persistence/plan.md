@@ -61,7 +61,8 @@ All requests include: Authorization: Bearer <jwt_token>
       created_at: datetime
   ```
 - [ ] Create Alembic migration for initial schema
-- [ ] Run migration against local Postgres (and verify against AWS RDS)
+- [ ] Run migration against **local Postgres** (dev): `alembic upgrade head` with local `DATABASE_URL`
+- [ ] Run migration against **AWS RDS** (production): same command, different `DATABASE_URL` from `.env.production`
 - [ ] Add indexes: `User.username`, `Project.user_id`
 
 ### 6.2 Auth Endpoints (FastAPI)
@@ -131,10 +132,12 @@ All requests include: Authorization: Bearer <jwt_token>
 - [ ] `POST /api/upload` — Upload image (requires auth)
   - Accept multipart form data
   - Validate: size limit 5MB, types jpg/png/webp/svg only
-  - Store in AWS S3 bucket (or local `uploads/` dir in dev)
-  - Return: `{ url: "https://..." }` — public URL
-- [ ] Configure S3 bucket with public read access for uploaded images
-- [ ] In dev: serve from local filesystem via FastAPI static files
+  - Storage backend determined by `AWS_S3_BUCKET` env var:
+    - **Set** → upload to S3, return S3 URL
+    - **Empty/unset** → save to local `uploads/` dir, return local URL
+  - Return: `{ url: "https://..." }` (S3) or `{ url: "/uploads/..." }` (local)
+- [ ] **Production**: Configure S3 bucket with public read access for uploaded images
+- [ ] **Dev**: Serve from local filesystem via FastAPI static files mount (`/uploads`)
 
 ### 6.8 Auto-Save Integration
 - [ ] Console (`usePageConfig()` store) debounces config changes (2 second delay)
