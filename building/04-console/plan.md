@@ -189,7 +189,7 @@ STATE_SNAPSHOT      STATE_DELTA         User direct
   - When `confirm_destructive_change` is called → show inline confirmation card
   - When `pick_section` is called → show inline section picker
   - Results automatically sent back to agent
-- [ ] Conversation persisted per project
+- [ ] Conversation persisted per project (auto-saved to FastAPI `PUT /api/projects/:id`)
 
 ### 4.5 Live Preview
 - [ ] iframe (or sandboxed React root) rendering PageRenderer

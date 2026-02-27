@@ -19,18 +19,18 @@ Make it ready for real users. Billing, rate limiting, landing page, performance 
   - Pro: unlimited projects, more messages, export, custom domain
 - [ ] Payment flow (checkout, subscription management)
 - [ ] Usage tracking (messages per day, projects count)
-- [ ] **Billing logic split across two services**:
-  - **Next.js** checks project count before create (free tier = 1 project, Pro = unlimited)
-  - **FastAPI** checks message count before calling Claude (free tier = N/day, Pro = M/day)
-  - Stripe webhook updates user tier in **Supabase** → both services read tier from there
-- [ ] Enforce limits with clear error messages
+- [ ] **All billing logic in FastAPI** (single server-side authority):
+  - FastAPI checks project count on `POST /api/projects` (free tier = 1, Pro = unlimited)
+  - FastAPI checks message count on `POST /api/agent` (free tier = N/day, Pro = M/day)
+  - Stripe webhook endpoint `POST /api/billing/webhook` updates `users.tier` in Postgres
+- [ ] Enforce limits with clear error messages (403 with reason)
 
 ### 7.2 Rate Limiting
-- [ ] FastAPI middleware: extract `user_id` from Supabase JWT (from Plan 06)
+- [ ] FastAPI middleware: extract `user_id` from JWT (from Plan 06)
 - [ ] Rate limits keyed by `user_id` (not just IP)
-- [ ] Per-user limits on FastAPI `/api/agent` endpoint (AI calls)
-- [ ] Per-user limits on Next.js project creation (free tier)
-- [ ] Per-user limits on Next.js image uploads
+- [ ] Per-user limits on `/api/agent` (AI calls)
+- [ ] Per-user limits on `/api/projects` (project creation, free tier)
+- [ ] Per-user limits on `/api/upload` (image uploads)
 - [ ] Unauthenticated requests: very low IP-based limits (e.g., 1 req/min)
 - [ ] Graceful 429 error messages when limits hit
 
@@ -60,7 +60,7 @@ Make it ready for real users. Billing, rate limiting, landing page, performance 
 - [ ] Test all 10 section types × all variants in both modes
 - [ ] Test viewport responsiveness on real devices
 - [ ] Test full user flow: sign up → create → build → iterate → export → deploy
-- [ ] **Auth bridge integration test**: signed-in user creates project → console sends JWT to FastAPI → AI responds → message count tracked in billing
+- [ ] **Auth integration test**: register → login → create project → call AI (JWT auth) → save project → export. All endpoints enforce auth.
 - [ ] Test export on fresh machine (npm install → dev → build)
 - [ ] Cross-browser: Chrome, Firefox, Safari
 - [ ] Test rate limits: free user hits message limit → gets friendly 429
@@ -79,7 +79,7 @@ Make it ready for real users. Billing, rate limiting, landing page, performance 
 - [ ] Billing works (can upgrade, payments process, limits enforced on both services)
 - [ ] No critical bugs in the user flow
 - [ ] Landing page is live
-- [ ] Rate limiting works on both services (FastAPI for AI, Next.js for projects/uploads)
+- [ ] Rate limiting works on all FastAPI endpoints (AI, projects, uploads)
 
 ---
 

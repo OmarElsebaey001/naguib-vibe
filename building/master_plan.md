@@ -19,20 +19,24 @@ These are the source of truth. Any agent implementing Naguib must read these fir
 Two separate services communicating via the AG-UI protocol:
 
 ```
-┌─────────────────────────────┐         AG-UI (SSE)         ┌─────────────────────────────┐
+┌─────────────────────────────┐    AG-UI (SSE) + REST API    ┌─────────────────────────────┐
 │       FRONTEND (Next.js)    │ ◄──────────────────────────► │     BACKEND (FastAPI)        │
 │                             │                              │                              │
 │  Console UI                 │   HttpAgent ↔ /api/agent     │  AG-UI Agent Endpoint        │
-│  Chat Panel                 │                              │  Anthropic Claude SDK        │
-│  Live Preview (PageRenderer)│                              │  Catalog / Prompt Engine     │
-│  Section Panel              │                              │  Pydantic Schemas            │
-│  Theme Controls             │                              │  JSON Patch Generation       │
-│  @ag-ui/client (HttpAgent)  │                              │  SSE StreamingResponse       │
+│  Chat Panel                 │   REST    ↔ /api/auth/*      │  Auth (JWT + bcrypt)         │
+│  Live Preview (PageRenderer)│   REST    ↔ /api/projects/*  │  Project CRUD                │
+│  Section Panel              │   REST    ↔ /api/upload      │  Image Uploads (S3/local)    │
+│  Theme Controls             │                              │  Anthropic Claude SDK        │
+│  @ag-ui/client (HttpAgent)  │                              │  SQLAlchemy + Postgres       │
+│  Dashboard                  │                              │  Pydantic Schemas            │
 └─────────────────────────────┘                              └─────────────────────────────┘
          │                                                              │
          ▼                                                              ▼
-    Vercel (deploy)                                              Railway / Fly.io / VPS
+    Vercel (deploy)                                          AWS (EC2/ECS) + RDS Postgres
 ```
+
+**FastAPI owns all server-side concerns**: auth, database, projects, AI agent, image storage.
+**Next.js is a pure frontend**: UI rendering, preview, export (file generation only).
 
 ## Tech Stack
 
@@ -59,19 +63,25 @@ Two separate services communicating via the AG-UI protocol:
 | Framework | FastAPI | latest |
 | Language | Python | 3.12+ |
 | Schema validation | Pydantic v2 | latest |
+| ORM | SQLAlchemy 2.0 (async) | latest |
+| DB driver | asyncpg | latest |
+| Migrations | Alembic | latest |
+| Database | PostgreSQL on AWS RDS | 16.x |
+| Auth | JWT (`python-jose[cryptography]`) + bcrypt (`passlib[bcrypt]`) | latest |
 | AI provider | Anthropic Python SDK (`anthropic`) | latest |
 | AG-UI Python SDK | `ag-ui-core` (`ag_ui.core`) + `ag-ui-encoder` (`ag_ui.encoder`) | latest |
 | SSE streaming | FastAPI `StreamingResponse` + AG-UI `EventEncoder` | latest |
 | JSON Patch | `jsonpatch` (RFC 6902) | latest |
+| Image storage | AWS S3 (`boto3`) or local filesystem | latest |
 | ASGI server | uvicorn | latest |
-| Deployment | Railway / Fly.io / VPS | — |
+| Deployment | AWS (EC2/ECS) + RDS Postgres | — |
 
 ### Shared
 
 | Layer | Technology |
 |---|---|
 | Agent↔Frontend protocol | AG-UI (SSE event stream) |
-| Database + Auth + Storage | Supabase |
+| Frontend↔Backend API | REST (auth, projects, uploads) + SSE (agent) |
 
 ---
 
@@ -89,7 +99,7 @@ Each plan is a self-contained workstream. They are roughly sequential but some o
 | 03 | AI Configurator (AG-UI Agent) | `03-ai-configurator/` | `NOT STARTED` | AG-UI agent backend: SSE streaming, event-driven ops, tool calls, state sync via snapshot/delta |
 | 04 | Console (AG-UI Client) | `04-console/` | `NOT STARTED` | AG-UI HttpAgent client: chat panel, live preview, tool execution, state subscription, viewport toggle |
 | 05 | Export Pipeline | `05-export-pipeline/` | `NOT STARTED` | Config → standalone Vite + React project download |
-| 06 | Auth & Persistence | `06-auth-persistence/` | `NOT STARTED` | Supabase auth, project storage, image uploads, user dashboard |
+| 06 | Auth & Persistence | `06-auth-persistence/` | `NOT STARTED` | Username/password + JWT auth, Postgres (RDS) via SQLAlchemy, project CRUD, image uploads, dashboard |
 | 07 | Polish & Launch | `07-polish-launch/` | `NOT STARTED` | Billing, rate limiting, landing page, performance, beta launch |
 
 ### Status Values
@@ -116,7 +126,7 @@ Each plan is a self-contained workstream. They are roughly sequential but some o
 04 Console
  └──→ 05 Export Pipeline (needs working page to export)
 
-06 Auth & Persistence ← can start after 04
+06 Auth & Persistence ← needs 01 (FastAPI + SQLAlchemy) + 04 (Console to wire auto-save)
 07 Polish & Launch ← starts after everything else
 ```
 
@@ -152,12 +162,12 @@ Cross-service concerns that span multiple plans. Verify these before launch:
 
 | Concern | Owner Plans | Details |
 |---------|-------------|---------|
-| **Frontend → Backend auth** | 06 + 03 | Supabase JWT forwarded in `Authorization` header. FastAPI validates JWT, extracts `user_id`. |
-| **Billing tier propagation** | 07 + 06 | Stripe webhook → Supabase `users.tier` → both services read tier. Next.js checks project limits, FastAPI checks message limits. |
-| **Rate limiting** | 07 | FastAPI: per-user (from JWT) on `/api/agent`. Next.js: per-user on project creation + image uploads. |
+| **Frontend → Backend auth** | 06 + 03 | Frontend stores JWT from `/api/auth/login`. All API calls include `Authorization: Bearer <token>`. FastAPI middleware validates JWT, extracts `user_id`. |
+| **Billing tier propagation** | 07 + 06 | Stripe webhook → updates `users.tier` in Postgres. FastAPI reads tier on every request. |
+| **Rate limiting** | 07 | FastAPI: per-user (from JWT) on all endpoints. Keyed by `user_id`. |
 | **Error handling (distributed)** | 07 + 03 + 04 | FastAPI validates with Pydantic before emitting state events. Frontend re-validates with Zod. SSE connection drops → retry with preserved state. |
-| **Export auth** | 05 + 06 | Export endpoint (`/api/export` on Next.js) requires auth — prevents config scraping. |
-| **Conversation schema** | 04 + 06 | Chat history stored in Supabase as JSON array of AG-UI `Message` objects. Must round-trip cleanly. |
+| **Export auth** | 05 + 06 | Export builds zip client-side from frontend state. No server endpoint needed for V1. |
+| **Conversation schema** | 04 + 06 | Chat history stored in Postgres `projects.conversation_history` as JSON array of AG-UI `Message` objects. Must round-trip cleanly. |
 | **Tool contract sync** | 03 + 04 | Both plans must agree on tool names, schemas, and multi-turn flow. Changes require updating both plans. |
 | **Message format** | 03 + 04 | All messages use AG-UI `Message` type. Frontend serializes to this format before `RunAgentInput`. |
 

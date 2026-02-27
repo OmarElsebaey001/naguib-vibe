@@ -41,10 +41,12 @@ By the end of this plan, we should be able to hand-write a page config JSON and 
 ### 1.1b Backend Project Setup (FastAPI)
 - [ ] Initialize Python project with `uv` (or `poetry`)
 - [ ] Install FastAPI, uvicorn, pydantic v2
+- [ ] Install SQLAlchemy 2.0 (async), asyncpg, alembic (ORM + Postgres)
+- [ ] Install `python-jose[cryptography]`, `passlib[bcrypt]` (auth)
 - [ ] Install `anthropic` (Python SDK)
 - [ ] Install `ag-ui-core` and `ag-ui-encoder` (AG-UI Python SDK — event models, RunAgentInput, EventEncoder)
-- [ ] Install `sse-starlette` (SSE streaming fallback)
 - [ ] Install `jsonpatch` (RFC 6902 JSON Patch)
+- [ ] Install `boto3` (AWS S3 for image uploads — optional, can use local filesystem in dev)
 - [ ] Set up project structure:
   ```
   backend/
@@ -52,20 +54,34 @@ By the end of this plan, we should be able to hand-write a page config JSON and 
       main.py           # FastAPI app entry point
       routers/
         agent.py        # AG-UI agent endpoint (POST /api/agent)
+        auth.py         # Auth endpoints (POST /api/auth/register, /api/auth/login)
+        projects.py     # Project CRUD (GET/POST/PUT/DELETE /api/projects)
+        uploads.py      # Image upload (POST /api/upload)
+      models/
+        user.py         # SQLAlchemy User model
+        project.py      # SQLAlchemy Project model
       schemas/
         page_config.py  # Pydantic models (mirror of frontend Zod schemas)
         operations.py   # Operation types + JSON Patch mapping
+        auth.py         # Auth request/response schemas (register, login, token)
+        project.py      # Project request/response schemas
       services/
         claude.py       # Anthropic Claude API wrapper
         catalog.py      # Catalog generation from registry data
         prompt.py       # System prompt builder
       core/
-        config.py       # Settings (API keys, CORS origins, etc.)
+        config.py       # Settings (API keys, CORS origins, DB URL, JWT secret, etc.)
+        database.py     # SQLAlchemy async engine + session factory
+        security.py     # JWT creation/validation, password hashing
+      migrations/       # Alembic migrations
     tests/
     pyproject.toml
+    alembic.ini
   ```
 - [ ] Configure CORS middleware (allow frontend origin)
-- [ ] Create `.env` with `ANTHROPIC_API_KEY` and `FRONTEND_URL`
+- [ ] Create `.env` with `DATABASE_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, `FRONTEND_URL`
+- [ ] Set up SQLAlchemy async engine with asyncpg connecting to Postgres
+- [ ] Initialize Alembic for migrations
 - [ ] Verify server starts: `uvicorn app.main:app --reload`
 - [ ] Health check endpoint: `GET /health` → `{ "status": "ok" }`
 
@@ -131,6 +147,7 @@ By the end of this plan, we should be able to hand-write a page config JSON and 
 - [ ] All schemas validate correctly (both Zod and Pydantic)
 - [ ] Registry exports a catalog JSON suitable for AI consumption
 - [ ] FastAPI backend starts, health check passes, CORS configured for frontend origin
+- [ ] SQLAlchemy connects to Postgres, Alembic migrations run successfully
 - [ ] Both projects run concurrently in development (`frontend` on :3000, `backend` on :8000)
 
 ---
