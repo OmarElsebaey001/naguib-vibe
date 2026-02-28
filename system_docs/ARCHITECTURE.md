@@ -124,6 +124,8 @@ frontend/src/
 ├── components/
 │   ├── console/                 # Editor UI
 │   │   ├── chat-panel.tsx       # Chat with AI (messages, input, suggestions)
+│   │   ├── generation-skeleton.tsx # Skeleton loading UX during page generation
+│   │   ├── operations-block.tsx # Collapsible operations pill (tool call display)
 │   │   ├── preview-panel.tsx    # Live preview (desktop/tablet/mobile)
 │   │   └── section-list.tsx     # Section manager (reorder, variant swap, mode toggle)
 │   ├── sections/                # Component library (42 components)
@@ -140,7 +142,7 @@ frontend/src/
 │   │   └── register.ts          # Registers all components into registry
 │   └── ui/                      # Base UI primitives (button, input, scroll-area, tooltip, toast)
 └── lib/
-    ├── agent/use-agent.ts       # AG-UI HttpAgent hook (streaming chat)
+    ├── agent/use-agent.ts       # AG-UI HttpAgent hook (streaming chat + tool call tracking)
     ├── api/client.ts            # Fetch wrapper (JWT, error handling)
     ├── auth/                    # Auth context + ProtectedRoute
     │   ├── context.tsx
@@ -386,8 +388,11 @@ Each variant exports:
 | `STEP_STARTED` | Backend → Frontend | Phase begins (building_prompt, generating_response, applying_operations) |
 | `STEP_FINISHED` | Backend → Frontend | Phase completed |
 | `TEXT_MESSAGE_START` | Backend → Frontend | Assistant message begins |
-| `TEXT_MESSAGE_CONTENT` | Backend → Frontend | Text chunk (streaming) |
+| `TEXT_MESSAGE_CONTENT` | Backend → Frontend | Text chunk (filtered — JSON fences stripped) |
 | `TEXT_MESSAGE_END` | Backend → Frontend | Assistant message complete |
+| `TOOL_CALL_START` | Backend → Frontend | Operations tool call begins (`apply_operations`) |
+| `TOOL_CALL_ARGS` | Backend → Frontend | Operations JSON chunk (200-char segments) |
+| `TOOL_CALL_END` | Backend → Frontend | Operations tool call complete |
 | `STATE_SNAPSHOT` | Backend → Frontend | Full page config replacement |
 | `STATE_DELTA` | Backend → Frontend | Incremental RFC 6902 JSON Patches |
 
@@ -410,17 +415,35 @@ Frontend (useAgent)                    Backend (agent.py)
     │<─────────────────────────────────────│
     │  SSE: TEXT_MESSAGE_START             │
     │<─────────────────────────────────────│
-    │  SSE: TEXT_MESSAGE_CONTENT (chunk)   │ ← repeated
+    │  SSE: TEXT_MESSAGE_CONTENT (chunk)   │ ← repeated (JSON fences filtered out)
     │<─────────────────────────────────────│
     │  SSE: TEXT_MESSAGE_END              │
     │<─────────────────────────────────────│
     │  SSE: STEP_FINISHED(generating)     │
     │<─────────────────────────────────────│
+    │  SSE: STEP_STARTED(applying_ops)    │
+    │<─────────────────────────────────────│
+    │  SSE: TOOL_CALL_START(apply_ops)    │ ← operations streamed as tool call
+    │<─────────────────────────────────────│
+    │  SSE: TOOL_CALL_ARGS (chunk)        │ ← repeated (200-char segments)
+    │<─────────────────────────────────────│
+    │  SSE: TOOL_CALL_END                 │
+    │<─────────────────────────────────────│
     │  SSE: STATE_SNAPSHOT or STATE_DELTA  │
+    │<─────────────────────────────────────│
+    │  SSE: STEP_FINISHED(applying_ops)   │
     │<─────────────────────────────────────│
     │  SSE: RUN_FINISHED                  │
     │<─────────────────────────────────────│
 ```
+
+### Fence-Aware JSON Filtering
+
+The backend strips `\`\`\`json ... \`\`\`` fences from the text stream in real-time so the user never sees raw JSON operations in the chat. The full unfiltered text is preserved for `extract_operations()` parsing. A lookback buffer (6 chars) handles chunk boundary splitting.
+
+### Operations as Tool Calls
+
+After parsing operations from the full response, the backend emits them as an AG-UI tool call stream (`apply_operations`). The frontend `useAgent` hook tracks these in a `toolCalls` Map (`ToolCallState`) and renders them via the `OperationsBlock` component — a collapsible pill showing a human-readable summary (e.g., "Page created with 7 sections") with expandable raw JSON.
 
 ---
 
@@ -697,8 +720,8 @@ npm run dev                   # Starts on port 3003
 
 | Repository | Branch | Last Commit |
 |------------|--------|-------------|
-| Monorepo | main | 645df618ef660a4429738f2d1511354775a70d1a |
+| Monorepo | main | 45f030771e2c97f4ca64bff6876638fe84cb6207 |
 
 ---
 <!-- LAST_UPDATED: 2026-02-28 -->
-<!-- COMMIT: 645df618ef660a4429738f2d1511354775a70d1a -->
+<!-- COMMIT: 45f030771e2c97f4ca64bff6876638fe84cb6207 -->

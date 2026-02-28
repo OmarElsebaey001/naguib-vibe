@@ -13,6 +13,7 @@ import {
   LogOut,
   Loader2,
   FileText,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -29,6 +30,18 @@ function DashboardContent() {
   const [projects, setProjects] = useState<api.ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Close delete dialog on Escape
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deleting) setDeleteTarget(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [deleteTarget, deleting]);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -56,14 +69,18 @@ function DashboardContent() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api.deleteProject(id);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
+      await api.deleteProject(deleteTarget.id);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
       showToast("Project deleted", "info");
+      setDeleteTarget(null);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to delete project", "error");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -158,7 +175,7 @@ function DashboardContent() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(p.id, p.name);
+                      setDeleteTarget({ id: p.id, name: p.name });
                     }}
                     className="p-1.5 rounded-md text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                     title="Delete"
@@ -171,6 +188,74 @@ function DashboardContent() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-[fadeIn_150ms_ease-out]" />
+
+          {/* Dialog */}
+          <div
+            className="relative w-full max-w-sm mx-4 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl animate-[scaleIn_150ms_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="w-11 h-11 rounded-xl bg-red-500/10 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              </div>
+
+              <h3 className="text-sm font-semibold text-zinc-100 mb-1">
+                Delete project
+              </h3>
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                Are you sure you want to delete{" "}
+                <span className="font-medium text-zinc-200">
+                  &ldquo;{deleteTarget.name}&rdquo;
+                </span>
+                ? This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex gap-2 px-6 pb-6">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+              >
+                {deleting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dialog animations */}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { opacity: 0; transform: scale(0.95) translateY(4px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }

@@ -34,6 +34,9 @@ interface UseAgentReturn {
   toolCalls: Map<string, ToolCallState>;
 }
 
+const FENCE_OPEN = "```json";
+const FENCE_CLOSE = "```";
+
 export function useAgent(): UseAgentReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +48,12 @@ export function useAgent(): UseAgentReturn {
   const assistantBufferRef = useRef("");
   const assistantMsgIdRef = useRef<string | null>(null);
   const agentRef = useRef<HttpAgent | null>(null);
+
+  // Fence-aware parsing state (lives in refs to avoid stale closures)
+  const inFenceRef = useRef(false);
+  const textPortionRef = useRef("");
+  const jsonPortionRef = useRef("");
+  const tcIdRef = useRef<string | null>(null);
 
   const config = usePageConfigStore((s) => s.config);
   const replaceConfig = usePageConfigStore((s) => s.replaceConfig);
@@ -65,6 +74,10 @@ export function useAgent(): UseAgentReturn {
       setCurrentStep(null);
       assistantBufferRef.current = "";
       assistantMsgIdRef.current = null;
+      inFenceRef.current = false;
+      textPortionRef.current = "";
+      jsonPortionRef.current = "";
+      tcIdRef.current = null;
 
       // Build AG-UI messages from chat history
       const agMessages: Message[] = [
@@ -89,6 +102,47 @@ export function useAgent(): UseAgentReturn {
       agent.setState(config || {});
       agentRef.current = agent;
 
+      /** Update the visible chat message with text-only portion */
+      const flushText = () => {
+        const msgId = assistantMsgIdRef.current;
+        const display = textPortionRef.current;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId ? { ...m, content: display } : m,
+          ),
+        );
+      };
+
+      /** Start or update the operations card */
+      const flushJson = () => {
+        const msgId = assistantMsgIdRef.current;
+        let id = tcIdRef.current;
+        if (!id) {
+          id = `ops-${Date.now()}`;
+          tcIdRef.current = id;
+          setToolCalls((prev) => {
+            const next = new Map(prev);
+            next.set(id!, {
+              id: id!,
+              name: "apply_operations",
+              buffer: "",
+              isComplete: false,
+              parentMessageId: msgId,
+            });
+            return next;
+          });
+        }
+        const buf = jsonPortionRef.current;
+        setToolCalls((prev) => {
+          const next = new Map(prev);
+          const tc = next.get(id!);
+          if (tc) {
+            next.set(id!, { ...tc, buffer: buf });
+          }
+          return next;
+        });
+      };
+
       const subscriber: AgentSubscriber = {
         onStepStartedEvent: ({ event }) => {
           setCurrentStep(event.stepName);
@@ -99,6 +153,10 @@ export function useAgent(): UseAgentReturn {
         onTextMessageStartEvent: ({ event }) => {
           assistantMsgIdRef.current = event.messageId;
           assistantBufferRef.current = "";
+          textPortionRef.current = "";
+          jsonPortionRef.current = "";
+          inFenceRef.current = false;
+          tcIdRef.current = null;
           setMessages((prev) => [
             ...prev,
             { id: event.messageId, role: "assistant", content: "" },
@@ -106,65 +164,87 @@ export function useAgent(): UseAgentReturn {
         },
         onTextMessageContentEvent: ({ event }) => {
           assistantBufferRef.current += event.delta;
-          const buffer = assistantBufferRef.current;
-          const msgId = assistantMsgIdRef.current;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId ? { ...m, content: buffer } : m,
-            ),
-          );
-        },
-        onTextMessageEndEvent: () => {
-          // Fallback: strip any JSON block that leaked into the text
-          const msgId = assistantMsgIdRef.current;
-          const buffer = assistantBufferRef.current;
-          const clean = buffer
-            .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "")
-            .trim();
-          if (clean !== buffer) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === msgId ? { ...m, content: clean } : m,
-              ),
-            );
+          let pending = event.delta;
+
+          while (pending) {
+            if (!inFenceRef.current) {
+              const fencePos = (textPortionRef.current + pending).indexOf(FENCE_OPEN);
+              const combined = textPortionRef.current + pending;
+
+              if (fencePos === -1) {
+                // No fence found — but keep last few chars in case fence is split across chunks
+                const lookback = FENCE_OPEN.length - 1;
+                textPortionRef.current = combined;
+                // Show all but lookback tail (to avoid flashing partial fence)
+                if (combined.length > lookback) {
+                  // Just update the display with the full accumulated text
+                }
+                pending = "";
+                flushText();
+              } else {
+                // Found fence — everything before it is text
+                textPortionRef.current = combined.substring(0, fencePos);
+                flushText();
+                inFenceRef.current = true;
+                // Skip past the "```json" marker
+                pending = combined.substring(fencePos + FENCE_OPEN.length);
+                jsonPortionRef.current = "";
+              }
+            } else {
+              // Inside JSON fence — look for closing ```
+              const combined = jsonPortionRef.current + pending;
+              const closePos = combined.indexOf(FENCE_CLOSE);
+
+              if (closePos === -1) {
+                jsonPortionRef.current = combined;
+                pending = "";
+                flushJson();
+              } else {
+                // Found closing fence
+                jsonPortionRef.current = combined.substring(0, closePos);
+                flushJson();
+                // Mark tool call complete
+                const id = tcIdRef.current;
+                if (id) {
+                  setToolCalls((prev) => {
+                    const next = new Map(prev);
+                    const tc = next.get(id);
+                    if (tc) {
+                      next.set(id, { ...tc, isComplete: true });
+                    }
+                    return next;
+                  });
+                }
+                inFenceRef.current = false;
+                pending = combined.substring(closePos + FENCE_CLOSE.length);
+              }
+            }
           }
         },
-        onToolCallStartEvent: ({ event }) => {
-          setToolCalls((prev) => {
-            const next = new Map(prev);
-            next.set(event.toolCallId, {
-              id: event.toolCallId,
-              name: event.toolCallName,
-              buffer: "",
-              isComplete: false,
-              parentMessageId:
-                event.parentMessageId ?? assistantMsgIdRef.current,
+        onTextMessageEndEvent: () => {
+          // Final cleanup: strip any remaining fence artifacts from display text
+          const msgId = assistantMsgIdRef.current;
+          const cleanText = textPortionRef.current
+            .replace(/```json[\s\S]*?```/g, "")
+            .trim();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId ? { ...m, content: cleanText } : m,
+            ),
+          );
+
+          // If we were still in a fence (incomplete), mark complete anyway
+          const id = tcIdRef.current;
+          if (id) {
+            setToolCalls((prev) => {
+              const next = new Map(prev);
+              const tc = next.get(id);
+              if (tc && !tc.isComplete) {
+                next.set(id, { ...tc, isComplete: true });
+              }
+              return next;
             });
-            return next;
-          });
-        },
-        onToolCallArgsEvent: ({ event }) => {
-          setToolCalls((prev) => {
-            const next = new Map(prev);
-            const tc = next.get(event.toolCallId);
-            if (tc) {
-              next.set(event.toolCallId, {
-                ...tc,
-                buffer: tc.buffer + event.delta,
-              });
-            }
-            return next;
-          });
-        },
-        onToolCallEndEvent: ({ event }) => {
-          setToolCalls((prev) => {
-            const next = new Map(prev);
-            const tc = next.get(event.toolCallId);
-            if (tc) {
-              next.set(event.toolCallId, { ...tc, isComplete: true });
-            }
-            return next;
-          });
+          }
         },
         onStateSnapshotEvent: ({ event }) => {
           replaceConfig(
@@ -205,6 +285,9 @@ export function useAgent(): UseAgentReturn {
 
   const setInitialMessages = useCallback((msgs: ChatMessage[]) => {
     setMessages(msgs);
+    setToolCalls(new Map());
+    setError(null);
+    setCurrentStep(null);
   }, []);
 
   return {

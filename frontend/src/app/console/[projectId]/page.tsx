@@ -54,6 +54,7 @@ function ProjectConsoleContent() {
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [projectLoaded, setProjectLoaded] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState<string | null>(null);
 
   // Auto-save debounce ref
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -61,9 +62,17 @@ function ProjectConsoleContent() {
 
   const [loadError, setLoadError] = useState(false);
 
-  // Load project on mount
+  // Load project on mount (or when projectId changes)
   useEffect(() => {
     let cancelled = false;
+
+    // Reset state for the new project
+    setProjectLoaded(false);
+    setLoadError(false);
+    setInitialMessages([]);
+    replaceConfig(null as unknown as import("@/lib/schemas/page-config").PageConfig);
+    lastSavedRef.current = "";
+
     (async () => {
       try {
         const project = await api.getProject(projectId);
@@ -106,16 +115,18 @@ function ProjectConsoleContent() {
     if (snapshot === lastSavedRef.current) return;
     lastSavedRef.current = snapshot;
 
+    const payload = {
+      config: currentConfig as Record<string, unknown> | undefined,
+      conversation_history: currentMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+      })),
+      name: currentConfig?.name || undefined,
+    };
+
     try {
-      await api.updateProject(projectId, {
-        config: currentConfig as Record<string, unknown> | undefined,
-        conversation_history: currentMessages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-        })),
-        name: currentConfig?.name || undefined,
-      });
+      await api.updateProject(projectId, payload);
       saveFailCountRef.current = 0;
     } catch {
       saveFailCountRef.current += 1;
@@ -130,16 +141,53 @@ function ProjectConsoleContent() {
   useEffect(() => {
     if (!projectLoaded) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(doSave, 2000);
+    saveTimerRef.current = setTimeout(doSave, 1000);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [config, messages, projectLoaded, doSave]);
 
-  // Save on unmount
+  // Save on unmount and page unload (refresh/close)
   useEffect(() => {
-    return () => { doSave(); };
-  }, [doSave]);
+    const handleBeforeUnload = () => {
+      const currentConfig = configRef.current;
+      const currentMessages = messagesRef.current;
+      const snapshot = JSON.stringify({ config: currentConfig, messages: currentMessages });
+      if (snapshot === lastSavedRef.current) return;
+
+      // Use sendBeacon to ensure save survives page unload
+      const token = localStorage.getItem("token");
+      const payload = JSON.stringify({
+        config: currentConfig,
+        conversation_history: currentMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+        })),
+        name: currentConfig?.name || undefined,
+      });
+      const headers = { type: "application/json" };
+      const blob = new Blob([payload], headers);
+      const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002"}/api/projects/${projectId}`;
+
+      // sendBeacon doesn't support custom headers, so use fetch with keepalive
+      fetch(url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      doSave();
+    };
+  }, [doSave, projectId]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -212,7 +260,7 @@ function ProjectConsoleContent() {
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-100">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm">
+      <div className="relative z-20 flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-950">
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
@@ -229,28 +277,21 @@ function ProjectConsoleContent() {
               {config.name}
             </span>
           )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          {/* Undo/Redo */}
-          <button
-            onClick={undo}
-            disabled={undoStack.length === 0}
-            title="Undo (Cmd+Z)"
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 disabled:opacity-20 transition-colors"
-          >
-            <Undo2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={redo}
-            disabled={redoStack.length === 0}
-            title="Redo (Cmd+Shift+Z)"
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 disabled:opacity-20 transition-colors"
-          >
-            <Redo2 className="w-4 h-4" />
-          </button>
 
           <div className="w-px h-4 bg-zinc-800 mx-1" />
+
+          {/* Toggle section panel */}
+          <button
+            onClick={() => setShowSections(!showSections)}
+            title={showSections ? "Hide sections" : "Show sections"}
+            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {showSections ? (
+              <PanelLeftClose className="w-4 h-4" />
+            ) : (
+              <PanelLeft className="w-4 h-4" />
+            )}
+          </button>
 
           {/* Theme picker */}
           <div className="relative">
@@ -262,7 +303,7 @@ function ProjectConsoleContent() {
               <Palette className="w-4 h-4" />
             </button>
             {showThemePicker && (
-              <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 p-2">
+              <div className="absolute left-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl z-[100] p-2">
                 <p className="text-[10px] text-zinc-500 uppercase font-medium px-2 py-1">
                   Theme Presets
                 </p>
@@ -288,6 +329,26 @@ function ProjectConsoleContent() {
             )}
           </div>
 
+          {/* Undo/Redo */}
+          <button
+            onClick={undo}
+            disabled={undoStack.length === 0}
+            title="Undo (Cmd+Z)"
+            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 disabled:opacity-20 transition-colors"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={redo}
+            disabled={redoStack.length === 0}
+            title="Redo (Cmd+Shift+Z)"
+            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 disabled:opacity-20 transition-colors"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
           {/* Export */}
           {config && config.sections.length > 0 && (
             <button
@@ -304,21 +365,6 @@ function ProjectConsoleContent() {
               Export
             </button>
           )}
-
-          <div className="w-px h-4 bg-zinc-800 mx-1" />
-
-          {/* Toggle section panel */}
-          <button
-            onClick={() => setShowSections(!showSections)}
-            title={showSections ? "Hide sections" : "Show sections"}
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 transition-colors"
-          >
-            {showSections ? (
-              <PanelLeftClose className="w-4 h-4" />
-            ) : (
-              <PanelLeft className="w-4 h-4" />
-            )}
-          </button>
         </div>
       </div>
 
@@ -334,17 +380,14 @@ function ProjectConsoleContent() {
             onSendMessage={sendMessage}
             onClearError={clearError}
             toolCalls={toolCalls}
+            prefillInput={chatPrefill}
+            onPrefillConsumed={() => setChatPrefill(null)}
           />
         </div>
 
-        {/* Preview */}
-        <div className="flex-1 min-w-0">
-          <PreviewPanel config={config} isLoading={isLoading} />
-        </div>
-
-        {/* Section panel */}
+        {/* Section panel — next to chat */}
         {showSections && config && config.sections.length > 0 && (
-          <div className="w-[220px] flex-shrink-0 border-l border-zinc-800 bg-zinc-950 overflow-y-auto">
+          <div className="w-[280px] flex-shrink-0 border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
             <div className="p-3">
               <p className="text-[10px] text-zinc-500 uppercase font-medium mb-2">
                 Sections ({config.sections.length})
@@ -356,10 +399,18 @@ function ProjectConsoleContent() {
                 onMoveUp={moveSectionUp}
                 onMoveDown={moveSectionDown}
                 onSwapVariant={swapVariant}
+                onVibeCode={(sectionType) => {
+                  setChatPrefill(`In the ${sectionType} section, `);
+                }}
               />
             </div>
           </div>
         )}
+
+        {/* Preview */}
+        <div className="flex-1 min-w-0">
+          <PreviewPanel config={config} isLoading={isLoading} />
+        </div>
       </div>
     </div>
   );

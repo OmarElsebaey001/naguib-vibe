@@ -15,6 +15,8 @@ interface ChatPanelProps {
   onSendMessage: (text: string) => void;
   onClearError: () => void;
   toolCalls: Map<string, ToolCallState>;
+  prefillInput?: string | null;
+  onPrefillConsumed?: () => void;
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -31,10 +33,29 @@ export function ChatPanel({
   onSendMessage,
   onClearError,
   toolCalls,
+  prefillInput,
+  onPrefillConsumed,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Handle prefill from external source (e.g. vibe code button)
+  useEffect(() => {
+    if (prefillInput) {
+      setInput(prefillInput);
+      onPrefillConsumed?.();
+      // Focus and place cursor at end
+      setTimeout(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.style.height = "auto";
+          el.style.height = Math.min(el.scrollHeight, 160) + "px";
+        }
+      }, 0);
+    }
+  }, [prefillInput, onPrefillConsumed]);
 
   // Auto-scroll to bottom
   useEffect(() => {

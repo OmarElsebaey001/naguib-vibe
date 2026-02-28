@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { FileCode2, Check, ChevronDown } from "lucide-react";
 import { type ToolCallState } from "@/lib/agent/use-agent";
 
 interface OperationsBlockProps {
@@ -53,57 +54,101 @@ function deriveOperationsSummary(jsonStr: string): string {
   }
 }
 
+/** Count how many lines the buffer has so far */
+function lineCount(str: string): number {
+  if (!str) return 0;
+  let count = 1;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === "\n") count++;
+  }
+  return count;
+}
+
 export function OperationsBlock({ toolCall }: OperationsBlockProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const codeRef = useRef<HTMLPreElement>(null);
-  const wasStreamingRef = useRef(!toolCall.isComplete);
 
   // Auto-scroll code block while streaming
   useEffect(() => {
-    if (expanded && !toolCall.isComplete && codeRef.current) {
+    if (!collapsed && !toolCall.isComplete && codeRef.current) {
       codeRef.current.scrollTop = codeRef.current.scrollHeight;
     }
-  }, [expanded, toolCall.buffer, toolCall.isComplete]);
+  }, [collapsed, toolCall.buffer, toolCall.isComplete]);
 
-  // Stop tracking streaming once complete
-  useEffect(() => {
-    if (toolCall.isComplete) {
-      wasStreamingRef.current = false;
-    }
-  }, [toolCall.isComplete]);
-
+  const isStreaming = !toolCall.isComplete;
   const summary = toolCall.isComplete
     ? deriveOperationsSummary(toolCall.buffer)
-    : "Applying changes...";
-
-  const chevron = expanded ? "\u25BE" : "\u25B8";
+    : null;
+  const lines = lineCount(toolCall.buffer);
 
   return (
-    <div className="mt-2">
-      {/* Pill */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60 cursor-pointer transition-colors"
-      >
-        {!toolCall.isComplete && (
-          <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-        )}
-        <span>{chevron}</span>
-        <span>{summary}</span>
-      </button>
-
-      {/* Expandable code block */}
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-out"
-        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <pre
-            ref={codeRef}
-            className="mt-2 rounded-lg bg-zinc-900 border border-zinc-800 p-3 font-mono text-xs text-zinc-300 whitespace-pre overflow-x-auto max-h-[300px] overflow-y-auto"
+    <div className="mt-3 mb-1">
+      {/* Card */}
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/80 overflow-hidden">
+        {/* Header */}
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-zinc-800/50 transition-colors"
+        >
+          {/* Icon */}
+          <div
+            className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+              isStreaming
+                ? "bg-violet-500/15 text-violet-400"
+                : "bg-emerald-500/15 text-emerald-400"
+            }`}
           >
-            {toolCall.buffer || " "}
-          </pre>
+            {isStreaming ? (
+              <FileCode2 className="w-3.5 h-3.5" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}
+          </div>
+
+          {/* Label */}
+          <div className="flex-1 text-left min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-zinc-200">
+                {isStreaming ? "Building page config" : "Page config"}
+              </span>
+              {isStreaming && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse" />
+                  <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse [animation-delay:150ms]" />
+                  <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse [animation-delay:300ms]" />
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-zinc-500 truncate">
+              {isStreaming
+                ? `${lines} line${lines !== 1 ? "s" : ""} written...`
+                : summary}
+            </p>
+          </div>
+
+          {/* Chevron */}
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-zinc-500 flex-shrink-0 transition-transform duration-200 ${
+              collapsed ? "-rotate-90" : ""
+            }`}
+          />
+        </button>
+
+        {/* Code preview */}
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-out"
+          style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+        >
+          <div className="overflow-hidden">
+            <div className="border-t border-zinc-800">
+              <pre
+                ref={codeRef}
+                className="px-3 py-2.5 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-pre overflow-x-auto max-h-[200px] overflow-y-auto"
+              >
+                {toolCall.buffer || " "}
+              </pre>
+            </div>
+          </div>
         </div>
       </div>
     </div>
