@@ -12,11 +12,12 @@ class Settings(BaseSettings):
 
     # AI
     ANTHROPIC_API_KEY: str = ""
-    LLM_PROVIDER: str = "anthropic"
-    LLM_MODEL: str = "claude-sonnet-4-20250514"
+    GEMINI_API_KEY: str = ""
+    LLM_PROVIDER: str = "gemini"  # "anthropic" or "gemini"
+    LLM_MODEL: str = "gemini-2.5-flash"
 
     # Frontend
-    FRONTEND_URL: str = "http://localhost:3002"
+    FRONTEND_URL: str = "http://localhost:3003"
 
     # AWS S3 (empty = local filesystem)
     AWS_S3_BUCKET: str = ""

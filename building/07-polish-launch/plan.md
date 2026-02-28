@@ -1,6 +1,6 @@
 # Plan 07 — Polish & Launch
 
-> Status: `NOT STARTED`
+> Status: `IN PROGRESS`
 
 ---
 

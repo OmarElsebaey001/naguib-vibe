@@ -1,6 +1,6 @@
 # Plan 06 — Auth & Persistence
 
-> Status: `NOT STARTED`
+> Status: `COMPLETE`
 
 ---
 

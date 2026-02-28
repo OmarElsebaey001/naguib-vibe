@@ -94,13 +94,13 @@ Each plan is a self-contained workstream. They are roughly sequential but some o
 
 | # | Plan | Directory | Status | Description |
 |---|---|---|---|---|
-| 01 | Foundation | `01-foundation/` | `NOT STARTED` | Frontend project setup (Next.js) + Backend project setup (FastAPI), schemas (Zod + Pydantic), component registry, theme engine, PageRenderer |
-| 02 | Component Library | `02-component-library/` | `NOT STARTED` | Build ~40 section components across 10 types |
-| 03 | AI Configurator (AG-UI Agent) | `03-ai-configurator/` | `NOT STARTED` | AG-UI agent backend: SSE streaming, event-driven ops, tool calls, state sync via snapshot/delta |
-| 04 | Console (AG-UI Client) | `04-console/` | `NOT STARTED` | AG-UI HttpAgent client: chat panel, live preview, tool execution, state subscription, viewport toggle |
-| 05 | Export Pipeline | `05-export-pipeline/` | `NOT STARTED` | Config → standalone Vite + React project download |
-| 06 | Auth & Persistence | `06-auth-persistence/` | `NOT STARTED` | Username/password + JWT auth, Postgres (RDS) via SQLAlchemy, project CRUD, image uploads, dashboard |
-| 07 | Polish & Launch | `07-polish-launch/` | `NOT STARTED` | Billing, rate limiting, landing page, performance, beta launch |
+| 01 | Foundation | `01-foundation/` | `COMPLETE` | Frontend project setup (Next.js) + Backend project setup (FastAPI), schemas (Zod + Pydantic), component registry, theme engine, PageRenderer |
+| 02 | Component Library | `02-component-library/` | `COMPLETE` | Build ~40 section components across 10 types |
+| 03 | AI Configurator (AG-UI Agent) | `03-ai-configurator/` | `COMPLETE` | AG-UI agent backend: SSE streaming, event-driven ops, tool calls, state sync via snapshot/delta |
+| 04 | Console (AG-UI Client) | `04-console/` | `COMPLETE` | AG-UI HttpAgent client: chat panel, live preview, tool execution, state subscription, viewport toggle |
+| 05 | Export Pipeline | `05-export-pipeline/` | `COMPLETE` | Config → standalone Vite + React project download |
+| 06 | Auth & Persistence | `06-auth-persistence/` | `COMPLETE` | Username/password + JWT auth, Postgres (RDS) via SQLAlchemy, project CRUD, image uploads, dashboard |
+| 07 | Polish & Launch | `07-polish-launch/` | `IN PROGRESS` | Billing, rate limiting, landing page, performance, beta launch |
 
 ### Status Values
 

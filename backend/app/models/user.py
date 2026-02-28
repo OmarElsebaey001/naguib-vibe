@@ -1,11 +1,15 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
 
 
 class User(Base):
@@ -16,7 +20,5 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     tier: Mapped[str] = mapped_column(String, default="free")  # "free" | "pro"
     stripe_customer_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC), server_default=func.now(), onupdate=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, server_default=func.now(), onupdate=_utcnow)
