@@ -17,6 +17,8 @@ interface ChatPanelProps {
   toolCalls: Map<string, ToolCallState>;
   prefillInput?: string | null;
   onPrefillConsumed?: () => void;
+  streamingContent?: string;
+  streamingMsgId?: string | null;
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -35,6 +37,8 @@ export function ChatPanel({
   toolCalls,
   prefillInput,
   onPrefillConsumed,
+  streamingContent = "",
+  streamingMsgId = null,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -63,7 +67,7 @@ export function ChatPanel({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, isLoading, currentStep]);
+  }, [messages, isLoading, currentStep, streamingContent]);
 
   const handleSend = () => {
     const text = input.trim();
@@ -135,36 +139,40 @@ export function ChatPanel({
             </div>
           )}
 
-          {messages.map((msg) => (
-            <div key={msg.id} className="flex gap-3">
-              <div
-                className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-medium ${
-                  msg.role === "user"
-                    ? "bg-zinc-700 text-zinc-300"
-                    : "bg-violet-500/20 text-violet-400"
-                }`}
-              >
-                {msg.role === "user" ? "U" : "N"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-zinc-400 mb-1">
-                  {msg.role === "user" ? "You" : "Naguib"}
-                </p>
-                <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
-                  {msg.content || (
-                    <span className="text-zinc-500 italic">...</span>
-                  )}
+          {messages.map((msg) => {
+            const isStreaming = msg.id === streamingMsgId;
+            const displayContent = isStreaming ? streamingContent : msg.content;
+            return (
+              <div key={msg.id} className="flex gap-3">
+                <div
+                  className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-medium ${
+                    msg.role === "user"
+                      ? "bg-zinc-700 text-zinc-300"
+                      : "bg-violet-500/20 text-violet-400"
+                  }`}
+                >
+                  {msg.role === "user" ? "U" : "N"}
                 </div>
-                {msg.role === "assistant" &&
-                  (() => {
-                    const tc = Array.from(toolCalls.values()).find(
-                      (t) => t.parentMessageId === msg.id,
-                    );
-                    return tc ? <OperationsBlock toolCall={tc} /> : null;
-                  })()}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-zinc-400 mb-1">
+                    {msg.role === "user" ? "You" : "Naguib"}
+                  </p>
+                  <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
+                    {displayContent || (
+                      <span className="text-zinc-500 italic">...</span>
+                    )}
+                  </div>
+                  {msg.role === "assistant" &&
+                    (() => {
+                      const tc = Array.from(toolCalls.values()).find(
+                        (t) => t.parentMessageId === msg.id,
+                      );
+                      return tc ? <OperationsBlock toolCall={tc} /> : null;
+                    })()}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Loading/Step indicator */}
           {isLoading && currentStep && (

@@ -35,7 +35,7 @@ function ProjectConsoleContent() {
   const params = useParams();
   const projectId = params.projectId as string;
 
-  const { messages, isLoading, error, currentStep, sendMessage, clearError, setInitialMessages, toolCalls } =
+  const { messages, isLoading, error, currentStep, sendMessage, clearError, setInitialMessages, toolCalls, streamingContent, streamingMsgId } =
     useAgent();
   const config = usePageConfigStore((s) => s.config);
   const undo = usePageConfigStore((s) => s.undo);
@@ -382,6 +382,8 @@ function ProjectConsoleContent() {
             toolCalls={toolCalls}
             prefillInput={chatPrefill}
             onPrefillConsumed={() => setChatPrefill(null)}
+            streamingContent={streamingContent}
+            streamingMsgId={streamingMsgId}
           />
         </div>
 

@@ -32,6 +32,8 @@ interface UseAgentReturn {
   clearError: () => void;
   setInitialMessages: (msgs: ChatMessage[]) => void;
   toolCalls: Map<string, ToolCallState>;
+  streamingContent: string;
+  streamingMsgId: string | null;
 }
 
 const FENCE_OPEN = "```json";
@@ -45,6 +47,8 @@ export function useAgent(): UseAgentReturn {
   const [toolCalls, setToolCalls] = useState<Map<string, ToolCallState>>(
     new Map(),
   );
+  const [streamingContent, setStreamingContent] = useState("");
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const assistantBufferRef = useRef("");
   const assistantMsgIdRef = useRef<string | null>(null);
   const agentRef = useRef<HttpAgent | null>(null);
@@ -102,15 +106,9 @@ export function useAgent(): UseAgentReturn {
       agent.setState(config || {});
       agentRef.current = agent;
 
-      /** Update the visible chat message with text-only portion */
+      /** Update the streaming display with text-only portion */
       const flushText = () => {
-        const msgId = assistantMsgIdRef.current;
-        const display = textPortionRef.current;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === msgId ? { ...m, content: display } : m,
-          ),
-        );
+        setStreamingContent(textPortionRef.current);
       };
 
       /** Start or update the operations card */
@@ -157,6 +155,8 @@ export function useAgent(): UseAgentReturn {
           jsonPortionRef.current = "";
           inFenceRef.current = false;
           tcIdRef.current = null;
+          setStreamingMsgId(event.messageId);
+          setStreamingContent("");
           setMessages((prev) => [
             ...prev,
             { id: event.messageId, role: "assistant", content: "" },
@@ -227,11 +227,14 @@ export function useAgent(): UseAgentReturn {
           const cleanText = textPortionRef.current
             .replace(/```json[\s\S]*?```/g, "")
             .trim();
+          // Commit final text into messages array and clear streaming state
           setMessages((prev) =>
             prev.map((m) =>
               m.id === msgId ? { ...m, content: cleanText } : m,
             ),
           );
+          setStreamingMsgId(null);
+          setStreamingContent("");
 
           // If we were still in a fence (incomplete), mark complete anyway
           const id = tcIdRef.current;
@@ -288,6 +291,8 @@ export function useAgent(): UseAgentReturn {
     setToolCalls(new Map());
     setError(null);
     setCurrentStep(null);
+    setStreamingContent("");
+    setStreamingMsgId(null);
   }, []);
 
   return {
@@ -299,5 +304,7 @@ export function useAgent(): UseAgentReturn {
     clearError,
     setInitialMessages,
     toolCalls,
+    streamingContent,
+    streamingMsgId,
   };
 }
