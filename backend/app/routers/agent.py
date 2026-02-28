@@ -24,6 +24,9 @@ from ag_ui.core import (
     TextMessageContentEvent,
     TextMessageEndEvent,
     TextMessageStartEvent,
+    ToolCallArgsEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
 )
 from ag_ui.encoder import EventEncoder
 
@@ -83,28 +86,99 @@ async def _run_agent(body: RunAgentInput):
 
         yield encoder.encode(StepFinishedEvent(step_name="building_prompt"))
 
-        # --- Stream LLM response ---
+        # --- Stream LLM response with fence-aware JSON filtering ---
         yield encoder.encode(StepStartedEvent(step_name="generating_response"))
         yield encoder.encode(TextMessageStartEvent(message_id=msg_id, role="assistant"))
 
         full_text = ""
+        text_buffer = ""
+        in_json_fence = False
+        json_block = ""
+        FENCE_OPEN = "```json"
+        FENCE_CLOSE = "```"
+        # Keep enough chars buffered to detect a partial "```jso" at boundaries
+        LOOKBACK = len(FENCE_OPEN) - 1  # 6
+
         async for chunk in llm.stream(system_prompt, messages):
             full_text += chunk
-            yield encoder.encode(TextMessageContentEvent(message_id=msg_id, delta=chunk))
+            text_buffer += chunk
+
+            while text_buffer:
+                if not in_json_fence:
+                    fence_pos = text_buffer.find(FENCE_OPEN)
+                    if fence_pos == -1:
+                        # No fence — emit safe prefix, keep tail for boundary detection
+                        safe = text_buffer[:-LOOKBACK] if len(text_buffer) > LOOKBACK else ""
+                        if safe:
+                            yield encoder.encode(
+                                TextMessageContentEvent(message_id=msg_id, delta=safe)
+                            )
+                            text_buffer = text_buffer[len(safe):]
+                        break
+                    else:
+                        # Emit text before the fence
+                        if fence_pos > 0:
+                            yield encoder.encode(
+                                TextMessageContentEvent(
+                                    message_id=msg_id, delta=text_buffer[:fence_pos]
+                                )
+                            )
+                        in_json_fence = True
+                        text_buffer = text_buffer[fence_pos + len(FENCE_OPEN):]
+                        json_block = ""
+                else:
+                    # Inside fence — look for closing ```
+                    close_pos = text_buffer.find(FENCE_CLOSE)
+                    if close_pos == -1:
+                        json_block += text_buffer
+                        text_buffer = ""
+                        break
+                    else:
+                        json_block += text_buffer[:close_pos]
+                        text_buffer = text_buffer[close_pos + len(FENCE_CLOSE):]
+                        in_json_fence = False
+
+        # Flush remaining buffer (if we ended outside a fence)
+        if text_buffer and not in_json_fence:
+            yield encoder.encode(
+                TextMessageContentEvent(message_id=msg_id, delta=text_buffer)
+            )
 
         yield encoder.encode(TextMessageEndEvent(message_id=msg_id))
         yield encoder.encode(StepFinishedEvent(step_name="generating_response"))
 
-        # --- Parse operations from response ---
+        # --- Parse operations from full response ---
         yield encoder.encode(StepStartedEvent(step_name="applying_operations"))
 
         _clean_text, operations = extract_operations(full_text)
 
         if operations:
-            first_op = operations[0] if operations else {}
+            # Emit operations as a tool call stream (TOOL_CALL_START → ARGS → END)
+            tc_id = str(uuid.uuid4())
+            yield encoder.encode(
+                ToolCallStartEvent(
+                    tool_call_id=tc_id,
+                    tool_call_name="apply_operations",
+                    parent_message_id=msg_id,
+                )
+            )
+
+            ops_json = json.dumps({"operations": operations}, indent=2)
+            CHUNK_SIZE = 200
+            for i in range(0, len(ops_json), CHUNK_SIZE):
+                yield encoder.encode(
+                    ToolCallArgsEvent(
+                        tool_call_id=tc_id,
+                        delta=ops_json[i : i + CHUNK_SIZE],
+                    )
+                )
+
+            yield encoder.encode(ToolCallEndEvent(tool_call_id=tc_id))
+
+            # Emit state events as before
+            first_op = operations[0]
 
             if first_op.get("type") == "replace_all":
-                # Full page replacement — emit STATE_SNAPSHOT
                 new_config = first_op.get("config", {})
                 try:
                     validate_page_config(new_config)
@@ -112,7 +186,6 @@ async def _run_agent(body: RunAgentInput):
                     pass  # Best-effort; frontend also validates
                 yield encoder.encode(StateSnapshotEvent(snapshot=new_config))
             else:
-                # Incremental operations — convert to RFC 6902 patches
                 patches = operations_to_patches(operations, current_config)
                 if patches:
                     yield encoder.encode(StateDeltaEvent(delta=patches))

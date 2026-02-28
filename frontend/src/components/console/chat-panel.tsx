@@ -3,7 +3,8 @@
 import { useRef, useEffect, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { type ChatMessage } from "@/lib/agent/use-agent";
+import { type ChatMessage, type ToolCallState } from "@/lib/agent/use-agent";
+import { OperationsBlock } from "@/components/console/operations-block";
 import { Send, Loader2, AlertCircle, Sparkles } from "lucide-react";
 
 interface ChatPanelProps {
@@ -13,6 +14,7 @@ interface ChatPanelProps {
   currentStep: string | null;
   onSendMessage: (text: string) => void;
   onClearError: () => void;
+  toolCalls: Map<string, ToolCallState>;
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -28,6 +30,7 @@ export function ChatPanel({
   currentStep,
   onSendMessage,
   onClearError,
+  toolCalls,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,6 +134,13 @@ export function ChatPanel({
                     <span className="text-zinc-500 italic">...</span>
                   )}
                 </div>
+                {msg.role === "assistant" &&
+                  (() => {
+                    const tc = Array.from(toolCalls.values()).find(
+                      (t) => t.parentMessageId === msg.id,
+                    );
+                    return tc ? <OperationsBlock toolCall={tc} /> : null;
+                  })()}
               </div>
             </div>
           ))}

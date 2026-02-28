@@ -15,6 +15,14 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ToolCallState {
+  id: string;
+  name: string;
+  buffer: string;
+  isComplete: boolean;
+  parentMessageId: string | null;
+}
+
 interface UseAgentReturn {
   messages: ChatMessage[];
   isLoading: boolean;
@@ -23,6 +31,7 @@ interface UseAgentReturn {
   sendMessage: (text: string) => Promise<void>;
   clearError: () => void;
   setInitialMessages: (msgs: ChatMessage[]) => void;
+  toolCalls: Map<string, ToolCallState>;
 }
 
 export function useAgent(): UseAgentReturn {
@@ -30,6 +39,9 @@ export function useAgent(): UseAgentReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
+  const [toolCalls, setToolCalls] = useState<Map<string, ToolCallState>>(
+    new Map(),
+  );
   const assistantBufferRef = useRef("");
   const assistantMsgIdRef = useRef<string | null>(null);
   const agentRef = useRef<HttpAgent | null>(null);
@@ -64,7 +76,10 @@ export function useAgent(): UseAgentReturn {
         { id: userMsg.id, role: "user" as const, content: text },
       ];
 
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("token")
+          : null;
       const agent = new HttpAgent({
         url: AGENT_URL,
         threadId: config?.id || "default",
@@ -100,10 +115,12 @@ export function useAgent(): UseAgentReturn {
           );
         },
         onTextMessageEndEvent: () => {
-          // Strip the JSON block from the displayed message
+          // Fallback: strip any JSON block that leaked into the text
           const msgId = assistantMsgIdRef.current;
           const buffer = assistantBufferRef.current;
-          const clean = buffer.replace(/```json\s*\{[\s\S]*?\}\s*```/g, "").trim();
+          const clean = buffer
+            .replace(/```json\s*\{[\s\S]*?\}\s*```/g, "")
+            .trim();
           if (clean !== buffer) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -112,8 +129,47 @@ export function useAgent(): UseAgentReturn {
             );
           }
         },
+        onToolCallStartEvent: ({ event }) => {
+          setToolCalls((prev) => {
+            const next = new Map(prev);
+            next.set(event.toolCallId, {
+              id: event.toolCallId,
+              name: event.toolCallName,
+              buffer: "",
+              isComplete: false,
+              parentMessageId:
+                event.parentMessageId ?? assistantMsgIdRef.current,
+            });
+            return next;
+          });
+        },
+        onToolCallArgsEvent: ({ event }) => {
+          setToolCalls((prev) => {
+            const next = new Map(prev);
+            const tc = next.get(event.toolCallId);
+            if (tc) {
+              next.set(event.toolCallId, {
+                ...tc,
+                buffer: tc.buffer + event.delta,
+              });
+            }
+            return next;
+          });
+        },
+        onToolCallEndEvent: ({ event }) => {
+          setToolCalls((prev) => {
+            const next = new Map(prev);
+            const tc = next.get(event.toolCallId);
+            if (tc) {
+              next.set(event.toolCallId, { ...tc, isComplete: true });
+            }
+            return next;
+          });
+        },
         onStateSnapshotEvent: ({ event }) => {
-          replaceConfig(event.snapshot as import("@/lib/schemas/page-config").PageConfig);
+          replaceConfig(
+            event.snapshot as import("@/lib/schemas/page-config").PageConfig,
+          );
         },
         onStateDeltaEvent: ({ event }) => {
           applyPatches(event.delta as Operation[]);
@@ -151,5 +207,14 @@ export function useAgent(): UseAgentReturn {
     setMessages(msgs);
   }, []);
 
-  return { messages, isLoading, error, currentStep, sendMessage, clearError, setInitialMessages };
+  return {
+    messages,
+    isLoading,
+    error,
+    currentStep,
+    sendMessage,
+    clearError,
+    setInitialMessages,
+    toolCalls,
+  };
 }

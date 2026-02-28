@@ -35,7 +35,7 @@ function ProjectConsoleContent() {
   const params = useParams();
   const projectId = params.projectId as string;
 
-  const { messages, isLoading, error, currentStep, sendMessage, clearError, setInitialMessages } =
+  const { messages, isLoading, error, currentStep, sendMessage, clearError, setInitialMessages, toolCalls } =
     useAgent();
   const config = usePageConfigStore((s) => s.config);
   const undo = usePageConfigStore((s) => s.undo);
@@ -333,12 +333,13 @@ function ProjectConsoleContent() {
             currentStep={currentStep}
             onSendMessage={sendMessage}
             onClearError={clearError}
+            toolCalls={toolCalls}
           />
         </div>
 
         {/* Preview */}
         <div className="flex-1 min-w-0">
-          <PreviewPanel config={config} />
+          <PreviewPanel config={config} isLoading={isLoading} />
         </div>
 
         {/* Section panel */}

@@ -5,6 +5,7 @@ import { Monitor, Tablet, Smartphone } from "lucide-react";
 import { PageRenderer } from "@/lib/renderer/page-renderer";
 import { type PageConfig } from "@/lib/schemas/page-config";
 import { ensureRegistered } from "@/components/sections/register";
+import { GenerationSkeleton } from "@/components/console/generation-skeleton";
 
 ensureRegistered();
 
@@ -18,9 +19,10 @@ const VIEWPORT_WIDTHS: Record<Viewport, string> = {
 
 interface PreviewPanelProps {
   config: PageConfig | null;
+  isLoading?: boolean;
 }
 
-export function PreviewPanel({ config }: PreviewPanelProps) {
+export function PreviewPanel({ config, isLoading = false }: PreviewPanelProps) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
 
   return (
@@ -62,9 +64,11 @@ export function PreviewPanel({ config }: PreviewPanelProps) {
             minHeight: "100%",
           }}
         >
-          {config ? (
-            <PageRenderer config={config} />
-          ) : (
+          {/* State: generating first page */}
+          {!config && isLoading && <GenerationSkeleton />}
+
+          {/* State: idle, no page */}
+          {!config && !isLoading && (
             <div className="flex items-center justify-center min-h-[60vh] text-zinc-400">
               <div className="text-center">
                 <p className="text-base font-medium">No page yet</p>
@@ -72,6 +76,16 @@ export function PreviewPanel({ config }: PreviewPanelProps) {
                   Send a message to generate your landing page
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* State: page exists */}
+          {config && (
+            <div
+              className="animate-[fadeIn_500ms_ease-out]"
+              style={{ animationFillMode: "both" }}
+            >
+              <PageRenderer config={config} />
             </div>
           )}
         </div>
