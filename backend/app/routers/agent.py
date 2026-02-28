@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.deps import get_current_user
-from app.core.rate_limit import agent_rate_limit, limiter
+from app.core.rate_limit import AGENT_RATE_LIMIT, limiter
 from app.models.user import User
 
 from ag_ui.core import (
@@ -129,10 +129,14 @@ async def _run_agent(body: RunAgentInput):
 
 
 @router.post("/agent")
-@limiter.limit(agent_rate_limit)
+@limiter.limit(AGENT_RATE_LIMIT)
 async def agent_endpoint(request: Request, user: User = Depends(get_current_user)):
     """AG-UI agent endpoint. Accepts RunAgentInput, returns SSE stream."""
     raw = await request.json()
+    # Fill in required AG-UI fields the frontend may omit
+    raw.setdefault("tools", [])
+    raw.setdefault("context", [])
+    raw.setdefault("forwardedProps", {})
     body = RunAgentInput.model_validate(raw)
 
     return StreamingResponse(

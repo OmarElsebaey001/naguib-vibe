@@ -24,9 +24,4 @@ def _get_user_id(request: Request) -> str:
 limiter = Limiter(key_func=_get_user_id)
 
 
-def agent_rate_limit(request: Request) -> str:
-    """Dynamic rate limit string based on user tier."""
-    user = getattr(request.state, "current_user", None)
-    if user and user.tier == "pro":
-        return f"{settings.PRO_MESSAGES_PER_DAY}/day"
-    return f"{settings.FREE_MESSAGES_PER_DAY}/day"
+AGENT_RATE_LIMIT = f"{settings.FREE_MESSAGES_PER_DAY}/day"
